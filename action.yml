@@ -3,7 +3,7 @@ description: 'Deploy public api gateway'
 inputs:
   app-name:
     description: 'Application id'
-    default: 'public_api_gateway'
+    default: 'public_api_gateway/gateway'
   aws-role:
     description: 'Aws role to apply changes'
     required: true
