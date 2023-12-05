@@ -1,0 +1,126 @@
+name: 'AppPublicGatewayAction'
+description: 'Deploy public api gateway'
+inputs:
+  app-name:
+    description: 'Application id'
+    default: 'public_api_gateway'
+  aws-role:
+    description: 'Aws role to apply changes'
+    required: true
+  terraform-version:
+    description: 'Terraform version to install'
+    default: '1.5.7'
+  terragrunt-version:
+    description: 'Terragrunt version to install'
+    default: '0.52.0'
+  application-repo:
+    description: 'terraform-public-api-gateway repository'
+    default: 'FinalCAD/terraform-public-api-gateway'
+  application-ref:
+    descrition: 'Ref to use for pulling repo terraform-public-api-gateway'
+    default: 'master'
+  github-token:
+    description: 'Github token to pull package to avoid limit rate'
+    default: ''
+  github-ssh:
+    description: 'Github ssh key to pull terragrunt from github api'
+    required: true
+  environment:
+    description: 'Finalcad envrionment: production, staging, sandbox'
+    require: true
+  region-friendly:
+    description: 'Finalcad region: frankfurt or tokyo'
+    default: 'frankfurt'
+  application-file:
+    description: 'File with path for application configuration'
+    require: true
+  dry-run:
+    description: 'Dry run'
+    default: false
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        path: 'app'
+    - uses: actions/checkout@v3
+      with:
+        ssh-key: ${{ inputs.github-ssh }}
+        repository: ${{ inputs.application-repo }}
+        ref: ${{ inputs.application-ref }}
+        path: 'terragrunt'
+    - name: Detect aws region
+      id: aws_region
+      shell: bash
+      run: |
+        set -e
+        case '${{ inputs.region-friendly }}' in
+            'frankfurt') awsregion='eu-central-1';;
+            'tokyo') awsregion='ap-northeast-1';;
+        esac
+        echo "awsregion=${awsregion}" >> $GITHUB_OUTPUT
+    # Setup ssh key
+    - name: Add ssh key
+      shell: bash
+      run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.github-ssh }}" > ~/.ssh/id_rsa
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
+        chmod 600 ~/.ssh/id_rsa ~/.ssh/known_hosts
+        eval $(ssh-agent)
+        ssh-add ~/.ssh/id_rsa
+    # Setup terraform
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ inputs.terraform-version }}
+        terraform_wrapper: false
+    # Setup terragrunt
+    - name: Terragrunt Binary Installer Action
+      uses: autero1/action-terragrunt@v1.3.0
+      if: inputs.terragrunt-version != 'disabled'
+      with:
+        terragrunt_version: ${{ inputs.terragrunt-version }}
+        token: ${{ inputs.github-token }}
+    # Copy application configuration file
+    - name: Application file
+      id: applicationfile
+      shell: bash
+      run: |
+        set -e
+        if [ -f ./app/${{ inputs.application-file }} ]; then
+          echo "File ${{ inputs.application-file }} is missing"
+          exit 1
+        fi
+        mkdir -p ./terragrunt/modules/public_api_gateway/gateway/templates
+        cp ${{ inputs.application-file }} ./terragrunt/modules/public_api_gateway/gateway/templates/openapi.json
+    # Configure aws credentials
+    - name: Configure AWS credentials for security
+      uses: aws-actions/configure-aws-credentials@v1
+      with:
+        aws-region: ${{ steps.aws_region.outputs.awsregion }}
+        role-to-assume: ${{ inputs.aws-role }}
+        role-session-name: OIDCSession
+    # Terragrunt plan
+    - name: Terragrunt plan
+      shell: bash
+      run: |
+        set -e
+        cd ./terragrunt/${{ inputs.environment }}/${{ inputs.region-friendly }}/${{ inputs.app-name }}
+        export TF_VAR_region_friendly=${{ inputs.region-friendly }}
+        export TF_VAR_application_id=${{ inputs.app-name }}
+        export TF_VAR_application_suffix=${{ inputs.app-suffix }}
+        terragrunt init -reconfigure
+        terragrunt plan
+    #Apply terragrunt
+    - name: Terragrunt apply
+      if: inputs.dry-run == 'false'
+      shell: bash
+      run: |
+        set -e
+        cd ./terragrunt/${{ inputs.environment }}/${{ inputs.region-friendly }}
+        export TF_VAR_region_friendly=${{ inputs.region-friendly }}
+        export TF_VAR_application_id=${{ inputs.app-name }}
+        export TF_VAR_application_suffix=${{ inputs.app-suffix }}
+        terragrunt init -reconfigure
+        terragrunt apply -auto-approve --terragrunt-non-interactive
