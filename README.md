@@ -43,7 +43,7 @@ Dry run, will not trigger apply, Default: false
 
 ```yaml
 - name: Push secrets
-  uses: FinalCAD/AppPublicGatewayAction@v1.0.0
+  uses: FinalCAD/AppPublicGatewayAction@v1
   with:
     github-ssh: ${{ secrets.GH_DEPLOY_SSH }}
     environment: sandbox
