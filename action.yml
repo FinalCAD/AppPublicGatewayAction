@@ -9,7 +9,7 @@ inputs:
     required: true
   terraform-version:
     description: 'Terraform version to install'
-    default: '1.5.7'
+    default: '1.9.7'
   terragrunt-version:
     description: 'Terragrunt version to install'
     default: '0.68.1'
@@ -71,16 +71,16 @@ runs:
         ssh-add ~/.ssh/id_rsa
     # Setup terraform
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v2
+      uses: hashicorp/setup-terraform@v3
       with:
         terraform_version: ${{ inputs.terraform-version }}
         terraform_wrapper: false
     # Setup terragrunt
     - name: Terragrunt Binary Installer Action
-      uses: autero1/action-terragrunt@v1.3.0
+      uses: autero1/action-terragrunt@v3
       if: inputs.terragrunt-version != 'disabled'
       with:
-        terragrunt_version: ${{ inputs.terragrunt-version }}
+        terragrunt-version: ${{ inputs.terragrunt-version }}
         token: ${{ inputs.github-token }}
     # Copy application configuration file
     - name: Application file
