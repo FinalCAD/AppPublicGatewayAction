@@ -13,9 +13,9 @@ inputs:
   terragrunt-version:
     description: 'Terragrunt version to install'
     default: '0.68.1'
-  application-repo:
+  application-git-url:
     description: 'terraform-public-api-gateway repository'
-    default: 'FinalCAD/terraform-public-api-gateway'
+    default: 'git@gitlab.com:orisha-group/construction/advae/finalcad-one/infrastructure/terraform-public-api-gateway.git'
   application-ref:
     descrition: 'Ref to use for pulling repo terraform-public-api-gateway'
     default: 'master'
@@ -40,15 +40,34 @@ inputs:
 runs:
   using: 'composite'
   steps:
-    - uses: actions/checkout@v3
+    - name: Setup SSH agent
+      uses: webfactory/ssh-agent@v0.10.0
+      with:
+        ssh-private-key: ${{ inputs.github-ssh }}
+    - name: Setup SSH known hosts
+      shell: bash
+      run: |
+        echo '::group::Setup SSH known hosts'
+        [[ -d ~/.ssh ]] || mkdir -p ~/.ssh
+        ssh-keyscan github.com >> ~/.ssh/known_hosts
+        ssh-keyscan gitlab.com >> ~/.ssh/known_hosts
+        echo '::endgroup::'
+    - name: Checkout application repository
+      uses: actions/checkout@v7
       with:
         path: 'app'
-    - uses: actions/checkout@v3
-      with:
-        ssh-key: ${{ inputs.github-ssh }}
-        repository: ${{ inputs.application-repo }}
-        ref: ${{ inputs.application-ref }}
-        path: 'terragrunt'
+    - name: Checkout terragrunt repository
+      shell: bash
+      run: |
+        echo '::group::Checkout terragrunt repository'
+        git clone \
+          --progress \
+          --branch '${{ inputs.application-ref }}' \
+          --depth 1 \
+          --no-tags \
+          '${{ inputs.application-git-url }}' \
+          'terragrunt'
+        echo '::endgroup::'
     - name: Detect aws region
       id: aws_region
       shell: bash
@@ -59,23 +78,11 @@ runs:
             'tokyo') awsregion='ap-northeast-1';;
         esac
         echo "awsregion=${awsregion}" >> $GITHUB_OUTPUT
-    # Setup ssh key
-    - name: Add ssh key
-      shell: bash
-      run: |
-        mkdir -p ~/.ssh
-        echo "${{ inputs.github-ssh }}" > ~/.ssh/id_rsa
-        ssh-keyscan github.com >> ~/.ssh/known_hosts
-        chmod 600 ~/.ssh/id_rsa ~/.ssh/known_hosts
-        eval $(ssh-agent)
-        ssh-add ~/.ssh/id_rsa
-    # Setup terraform
     - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+      uses: hashicorp/setup-terraform@v4
       with:
         terraform_version: ${{ inputs.terraform-version }}
         terraform_wrapper: false
-    # Setup terragrunt
     - name: Terragrunt Binary Installer Action
       uses: autero1/action-terragrunt@v3
       if: inputs.terragrunt-version != 'disabled'
@@ -94,14 +101,12 @@ runs:
         fi
         mkdir -p ./terragrunt/modules/public_api_gateway/gateway/templates
         cp ${{ inputs.application-file }} ./terragrunt/modules/public_api_gateway/gateway/templates/openapi.json
-    # Configure aws credentials
     - name: Configure AWS credentials for security
-      uses: aws-actions/configure-aws-credentials@v1
+      uses: aws-actions/configure-aws-credentials@v6
       with:
         aws-region: ${{ steps.aws_region.outputs.awsregion }}
         role-to-assume: ${{ inputs.aws-role }}
         role-session-name: OIDCSession
-    # Terragrunt plan
     - name: Terragrunt plan
       shell: bash
       run: |
@@ -109,7 +114,6 @@ runs:
         cd ./terragrunt/${{ inputs.environment }}/${{ inputs.region-friendly }}/${{ inputs.app-name }}
         terragrunt init -reconfigure
         terragrunt plan
-    #Apply terragrunt
     - name: Terragrunt apply
       if: inputs.dry-run == 'false'
       shell: bash
@@ -118,3 +122,9 @@ runs:
         cd ./terragrunt/${{ inputs.environment }}/${{ inputs.region-friendly }}/${{ inputs.app-name }}
         terragrunt init -reconfigure
         terragrunt apply -auto-approve --terragrunt-non-interactive
+    - name: Clear local repositories
+      shell: bash
+      run: |
+        echo '::group::Clear local repositories'
+        rm -rf './terragrunt'
+        echo '::endgroup::'
