@@ -17,8 +17,8 @@ inputs:
     description: 'terraform-public-api-gateway repository'
     default: 'git@gitlab.com:orisha-group/construction/advae/finalcad-one/infrastructure/terraform-public-api-gateway.git'
   application-ref:
-    descrition: 'Ref to use for pulling repo terraform-public-api-gateway'
-    default: 'master'
+    description: 'Ref to use for pulling repo terraform-public-api-gateway'
+    default: ''
   github-token:
     description: 'Github token to pull package to avoid limit rate'
     default: ''
@@ -27,16 +27,16 @@ inputs:
     required: true
   environment:
     description: 'Finalcad envrionment: production, staging, sandbox'
-    require: true
+    required: true
   region-friendly:
     description: 'Finalcad region: frankfurt or tokyo'
     default: 'frankfurt'
   application-file:
     description: 'File with path for application configuration'
-    require: true
+    required: true
   dry-run:
     description: 'Dry run'
-    default: false
+    default: 'false'
 runs:
   using: 'composite'
   steps:
@@ -60,13 +60,17 @@ runs:
       shell: bash
       run: |
         echo '::group::Checkout terragrunt repository'
-        git clone \
-          --progress \
-          --branch '${{ inputs.application-ref }}' \
-          --depth 1 \
-          --no-tags \
-          '${{ inputs.application-git-url }}' \
+        clone_args=(
+          --progress
+        )
+        [[ -z '${{ inputs.application-ref }}' ]] || clone_args+=(--branch '${{ inputs.application-ref }}')
+        clone_args+=(
+          --depth 1
+          --no-tags
+          '${{ inputs.application-git-url }}'
           'terragrunt'
+        )
+        git clone "${clone_args[@]}"
         echo '::endgroup::'
     - name: Detect aws region
       id: aws_region
